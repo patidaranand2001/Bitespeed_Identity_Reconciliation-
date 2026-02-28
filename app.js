@@ -1,34 +1,36 @@
 import express from 'express';
-import mysql from 'mysql2/promise';
+import pkg from 'pg';
+const { Client } = pkg;
 
 // configuration - adjust as needed or wire up environment variables
 const DB_CONFIG = {
-  host: 'localhost',
-  user: 'root',
-  password: 'Anand@2025',
-  database: 'testdb',
-  debug: false,
+  host: process.env.PGHOST || 'localhost',
+  user: process.env.PGUSER || 'postgres',
+  password: process.env.PGPASSWORD || 'Anand@2025',
+  database: process.env.PGDATABASE || 'testdb',
+  port: process.env.PGPORT || 5432,
 };
 
 let db;
 
 async function initDb() {
-  db = await mysql.createConnection(DB_CONFIG);
-  console.log('✅ Connected to MySQL');
-  // create table if it doesn't exist
-  await db.execute(`
+  db = new Client(DB_CONFIG);
+  await db.connect();
+  console.log('✅ Connected to PostgreSQL');
+  // create table if it doesn't exist; Postgres enum emulated with CHECK
+  await db.query(`
     CREATE TABLE IF NOT EXISTS Contact (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       phoneNumber VARCHAR(50),
       email VARCHAR(255),
-      linkedId INT DEFAULT NULL,
-      linkPrecedence ENUM('primary','secondary') NOT NULL DEFAULT 'primary',
-      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      deletedAt DATETIME NULL,
-      INDEX idx_email (email),
-      INDEX idx_phone (phoneNumber)
-    )
+      linkedId INT REFERENCES Contact(id) ON DELETE SET NULL,
+      linkPrecedence VARCHAR(10) NOT NULL DEFAULT 'primary' CHECK (linkPrecedence IN ('primary','secondary')),
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      deletedAt TIMESTAMP NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_email ON Contact(email);
+    CREATE INDEX IF NOT EXISTS idx_phone ON Contact(phoneNumber);
   `);
 }
 
@@ -59,12 +61,12 @@ async function gatherAllRelated(starting) {
     related.set(contact.id, contact);
     // fetch parent if any
     if (contact.linkedId) {
-      const [rows] = await db.query('SELECT * FROM Contact WHERE id = ?', [contact.linkedId]);
-      if (rows.length) stack.push(rows[0]);
+      const res = await db.query('SELECT * FROM Contact WHERE id = $1', [contact.linkedId]);
+      if (res.rows.length) stack.push(res.rows[0]);
     }
     // fetch children
-    const [children] = await db.query('SELECT * FROM Contact WHERE linkedId = ?', [contact.id]);
-    for (const child of children) stack.push(child);
+    const childrenRes = await db.query('SELECT * FROM Contact WHERE linkedId = $1', [contact.id]);
+    for (const child of childrenRes.rows) stack.push(child);
   }
   return Array.from(related.values());
 }
@@ -87,11 +89,12 @@ async function identifyHandler(req, res) {
     params.push(phoneNumber);
   }
   const query = `SELECT * FROM Contact WHERE ${conditions.join(' OR ')}`;
-  const [rows] = await db.query(query, params);
+  const rowsRes = await db.query(query, params);
+  const rows = rowsRes.rows;
 
   if (rows.length === 0) {
     // no existing contact; create primary
-    const [result] = await db.query('INSERT INTO Contact (email, phoneNumber) VALUES (?, ?)', [email || null, phoneNumber || null]);
+    const result = await db.query('INSERT INTO Contact (email, phoneNumber) VALUES ($1, $2) RETURNING id', [email || null, phoneNumber || null]);
     return res.json({
       contact: {
         primaryContactId: result.insertId,
@@ -120,7 +123,7 @@ async function identifyHandler(req, res) {
     for (const p of primaries) {
       if (p.id !== oldestPrimID) {
         await db.query(
-          'UPDATE Contact SET linkPrecedence = ?, linkedId = ? WHERE id = ?',
+          'UPDATE Contact SET linkPrecedence = $1, linkedId = $2 WHERE id = $3',
           ['secondary', oldestPrimID, p.id]
         );
       }
@@ -137,7 +140,7 @@ async function identifyHandler(req, res) {
   
   if ((email && !existingEmails.has(email)) || (phoneNumber && !existingPhones.has(phoneNumber))) {
     await db.query(
-      'INSERT INTO Contact (email, phoneNumber, linkedId, linkPrecedence) VALUES (?, ?, ?, ?)',
+      'INSERT INTO Contact (email, phoneNumber, linkedId, linkPrecedence) VALUES ($1, $2, $3, $4)',
       [email || null, phoneNumber || null, primary.id, 'secondary']
     );
     // Re-fetch the complete graph

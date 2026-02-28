@@ -1,17 +1,21 @@
 -- SQL schema for identity reconciliation task
 
-CREATE DATABASE IF NOT EXISTS testdb;
-USE testdb;
+-- Postgres schema for identity reconciliation
+
+CREATE DATABASE testdb; -- manually create; or use CREATE DATABASE IF NOT EXISTS in newer PG
+\c testdb
 
 CREATE TABLE IF NOT EXISTS Contact (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   phoneNumber VARCHAR(50),
   email VARCHAR(255),
-  linkedId INT DEFAULT NULL,
-  linkPrecedence ENUM('primary','secondary') NOT NULL DEFAULT 'primary',
-  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deletedAt DATETIME NULL,
-  INDEX idx_email (email),
-  INDEX idx_phone (phoneNumber)
+  linkedId INT REFERENCES Contact(id) ON DELETE SET NULL,
+  linkPrecedence VARCHAR(10) NOT NULL DEFAULT 'primary' CHECK (linkPrecedence IN ('primary','secondary')),
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deletedAt TIMESTAMP NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_email ON Contact(email);
+CREATE INDEX IF NOT EXISTS idx_phone ON Contact(phoneNumber);
+

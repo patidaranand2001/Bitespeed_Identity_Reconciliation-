@@ -1,6 +1,3 @@
-# Bitespeed_Identity_Reconciliation-
-Bitespeed Backend Task: Identity Reconciliation 
-
 # Bitespeed Identity Reconciliation Service
 
 This repository contains a simple Node.js/Express service that implements the
@@ -14,10 +11,13 @@ via `mysql2/promise` and includes a minimal schema migration script.
    npm install
    ```
 
-2. Create the database and table:
+2. Create the database and table (PostgreSQL must be running and accessible):
    ```bash
+   # if database doesn't exist you may need to create it manually:
+   createdb -U postgres testdb
    npm run migrate
-   # you will be prompted for your MySQL root password
+   # the migrate script uses psql; ensure it's on your PATH
+   # adjust connection credentials in schema.sql or use environment variables
    ```
 
 3. Start the server:
@@ -74,8 +74,24 @@ curl -X POST http://localhost:3000/identify -H 'Content-Type: application/json' 
 ## Notes
 
 * Update the database credentials in `app.js` or use environment variables for
-  production.
-* The `migrate` script assumes the `mysql` CLI is installed and on your path.
+  production. When deploying on Render you can set `PGHOST`, `PGUSER`,
+  `PGPASSWORD`, `PGDATABASE`, and `PGPORT` as environment secrets; the code
+  currently uses hard‑coded values but you can replace `DB_CONFIG` entries with
+  `process.env.*`.
+* The `migrate` script assumes the `psql` CLI is installed and on your path.
 * This is a minimal, in-memory-logic demonstration; for a production app you
   might want to move the reconciliation logic into stored procedures or a
   service layer with caching.
+
+## Deployment (Render)
+
+1. Push this repo to GitHub.
+2. Create a new Web Service on Render, connect to the GitHub repo.
+3. Set the build command to `npm install` and start command to `npm start`.
+4. Add a FREE PostgreSQL instance via Render's dashboard; note the connection
+   string and set the corresponding environment variables.
+5. Run `npm run migrate` on the deployed instance (you can use a one-time
+   command from Render's dashboard) to create the table.
+
+Render's free tier gives a managed Postgres database and automatic builds from
+GitHub, making it a good fit for this assignment.
