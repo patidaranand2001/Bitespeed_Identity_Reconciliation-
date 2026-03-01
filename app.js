@@ -77,16 +77,16 @@ async function identifyHandler(req, res) {
     return res.status(400).json({ error: 'email or phoneNumber required' });
   }
 
-  // find contacts that match either value
+  // find contacts that match either value; build positional parameters ($1, $2...)
   const conditions = [];
   const params = [];
   if (email) {
-    conditions.push('email = ?');
     params.push(email);
+    conditions.push(`email = $${params.length}`);
   }
   if (phoneNumber) {
-    conditions.push('phoneNumber = ?');
     params.push(phoneNumber);
+    conditions.push(`phoneNumber = $${params.length}`);
   }
   const query = `SELECT * FROM Contact WHERE ${conditions.join(' OR ')}`;
   const rowsRes = await db.query(query, params);
@@ -97,7 +97,7 @@ async function identifyHandler(req, res) {
     const result = await db.query('INSERT INTO Contact (email, phoneNumber) VALUES ($1, $2) RETURNING id', [email || null, phoneNumber || null]);
     return res.json({
       contact: {
-        primaryContactId: result.insertId,
+        primaryContactId: result.rows[0].id,
         emails: email ? [email] : [],
         phoneNumbers: phoneNumber ? [phoneNumber] : [],
         secondaryContactIds: [],
